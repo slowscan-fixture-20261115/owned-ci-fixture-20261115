@@ -1,0 +1,24 @@
+name: Owned downstream provenance
+
+on:
+  workflow_run:
+    workflows: [Owned upstream provenance]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record synthetic downstream event
+        env:
+          ACTOR: ${{ github.actor }}
+          RUN_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          echo "OWNED_DOWNSTREAM actor=$ACTOR run_actor=$RUN_ACTOR head_repo=$HEAD_REPO head_sha=$HEAD_SHA upstream_event=$UPSTREAM_EVENT conclusion=$UPSTREAM_CONCLUSION"
