@@ -24,6 +24,27 @@ jobs:
           UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           echo "OWNED_DOWNSTREAM actor=$ACTOR run_actor=$RUN_ACTOR head_repo=$HEAD_REPO head_sha=$HEAD_SHA upstream_event=$UPSTREAM_EVENT conclusion=$UPSTREAM_CONCLUSION"
+      - name: Start owned loopback endpoint
+        run: |
+          cat > "$RUNNER_TEMP/owned-endpoint.py" <<'PY'
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          class Handler(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  count = int(self.headers.get('Content-Length', '0'))
+                  if count:
+                      self.rfile.read(count)
+                  path = self.path.split('?', 1)[0]
+                  marker = self.headers.get('X-HackerOne-Handle', 'NULL')
+                  print(f'OWNED_REQUEST method=POST path={path} handle={marker}', flush=True)
+                  self.send_response(503)
+                  self.end_headers()
+                  self.wfile.write(b'owned stop')
+              def log_message(self, *_args):
+                  pass
+          ThreadingHTTPServer(('127.0.0.1', 39877), Handler).serve_forever()
+          PY
+          python3 "$RUNNER_TEMP/owned-endpoint.py" > "$RUNNER_TEMP/owned-endpoint.log" 2>&1 &
+          sleep 1
       - name: Exercise released Action provenance gate
         id: action_probe
         uses: anthropics/claude-code-action@v1
@@ -39,4 +60,6 @@ jobs:
         if: always()
         env:
           PROBE_OUTCOME: ${{ steps.action_probe.outcome }}
-        run: echo "OWNED_ACTION_OUTCOME=$PROBE_OUTCOME"
+        run: |
+          echo "OWNED_ACTION_OUTCOME=$PROBE_OUTCOME"
+          cat "$RUNNER_TEMP/owned-endpoint.log"
