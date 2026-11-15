@@ -1,0 +1,74 @@
+name: Owned comment boundary v2
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  exercise:
+    if: github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start synthetic endpoint
+        run: |
+          cat > "$RUNNER_TEMP/owned-endpoint.py" <<'PY'
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          import json
+          count = 0
+          def frame(name, data):
+              return f'event: {name}\ndata: {json.dumps(data, separators=(",", ":"))}\n\n'
+          def message(tool=None, inputs=None):
+              global count
+              count += 1
+              block = {'type':'tool_use','id':f'toolu_owned_{count}','name':tool,'input':{}} if tool else {'type':'text','text':''}
+              delta = {'type':'input_json_delta','partial_json':json.dumps(inputs)} if tool else {'type':'text_delta','text':'Owned fixture complete.'}
+              msg = {'id':f'msg_owned_{count}','type':'message','role':'assistant','content':[],
+                     'model':'claude-haiku-5-5','stop_reason':None,'stop_sequence':None,
+                     'usage':{'input_tokens':1,'output_tokens':1}}
+              return (frame('message_start',{'type':'message_start','message':msg})+
+                frame('content_block_start',{'type':'content_block_start','index':0,'content_block':block})+
+                frame('content_block_delta',{'type':'content_block_delta','index':0,'delta':delta})+
+                frame('content_block_stop',{'type':'content_block_stop','index':0})+
+                frame('message_delta',{'type':'message_delta','delta':{'stop_reason':'tool_use' if tool else 'end_turn','stop_sequence':None},'usage':{'output_tokens':1}})+
+                frame('message_stop',{'type':'message_stop'})).encode()
+          class Handler(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  size = int(self.headers.get('Content-Length','0'))
+                  if size: self.rfile.read(size)
+                  print('OWNED_REQUEST path='+self.path.split('?',1)[0]+' handle='+str(self.headers.get('X-HackerOne-Handle'))+' count='+str(count), flush=True)
+                  if self.path.startswith('/v1/messages/count_tokens'):
+                      body, content_type = b'{"input_tokens":1}', 'application/json'
+                  elif self.path.startswith('/v1/messages'):
+                      if count == 0: body = message('ToolSearch', {'query':'select:Bash'})
+                      elif count == 1: body = message('Bash', {'command':'printf OWNED_UNEXPECTED > /tmp/owned-action-comment.marker','description':'Owned marker control'})
+                      else: body = message()
+                      content_type = 'text/event-stream'
+                  else:
+                      self.send_error(404); return
+                  self.send_response(200)
+                  self.send_header('Content-Type',content_type)
+                  self.send_header('Content-Length',str(len(body)))
+                  self.end_headers(); self.wfile.write(body)
+              def log_message(self,*_): pass
+          ThreadingHTTPServer(('127.0.0.1',39878),Handler).serve_forever()
+          PY
+          python3 "$RUNNER_TEMP/owned-endpoint.py" > "$RUNNER_TEMP/owned-endpoint.log" 2>&1 &
+          sleep 1
+      - name: Exercise released action
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ github.token }}
+          anthropic_api_key: owned-invalid-key
+          trigger_phrase: owned
+          claude_args: --max-turns 3
+        env:
+          ANTHROPIC_BASE_URL: http://127.0.0.1:39878
+          ANTHROPIC_CUSTOM_HEADERS: 'X-HackerOne-Handle: slowscan'
+      - name: Show synthetic outcome
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/owned-endpoint.log"
+          if test -e /tmp/owned-action-comment.marker; then cat /tmp/owned-action-comment.marker; else echo OWNED_MARKER_ABSENT; fi
