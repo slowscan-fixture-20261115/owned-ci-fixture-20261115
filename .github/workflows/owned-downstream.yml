@@ -6,7 +6,9 @@ on:
     types: [completed]
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   record:
@@ -22,3 +24,19 @@ jobs:
           UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           echo "OWNED_DOWNSTREAM actor=$ACTOR run_actor=$RUN_ACTOR head_repo=$HEAD_REPO head_sha=$HEAD_SHA upstream_event=$UPSTREAM_EVENT conclusion=$UPSTREAM_CONCLUSION"
+      - name: Exercise released Action provenance gate
+        id: action_probe
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ github.token }}
+          anthropic_api_key: owned-invalid-key
+          prompt: Inspect only the synthetic owned provenance marker.
+          claude_args: --max-turns 1
+        env:
+          ANTHROPIC_BASE_URL: http://127.0.0.1:39877
+          ANTHROPIC_CUSTOM_HEADERS: 'X-HackerOne-Handle: slowscan'
+      - name: Record Action outcome
+        if: always()
+        env:
+          PROBE_OUTCOME: ${{ steps.action_probe.outcome }}
+        run: echo "OWNED_ACTION_OUTCOME=$PROBE_OUTCOME"
