@@ -1,1 +1,2 @@
 owned read-only fork actor marker 2026-11-15
+SYNTHETIC_UPSTREAM_READONLY_20261115
