@@ -1,0 +1,21 @@
+name: Owned upstream provenance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record synthetic upstream event
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "OWNED_UPSTREAM event=$EVENT_NAME actor=$ACTOR head_repo=$HEAD_REPO head_sha=$HEAD_SHA"
